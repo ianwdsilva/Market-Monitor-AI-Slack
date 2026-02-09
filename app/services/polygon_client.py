@@ -1,4 +1,4 @@
-"""Alpaca client for fetching market data."""
+"""Polygon.io client for fetching market data."""
 
 from __future__ import annotations
 
@@ -7,24 +7,22 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 
 import pandas as pd
-from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest
-from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+from polygon import RESTClient
+from polygon.rest.models import Agg
 
 logger = logging.getLogger(__name__)
 
 
-class AlpacaClient:
-    """Client for fetching stock data from Alpaca."""
+class PolygonClient:
+    """Client for fetching stock data from Polygon.io."""
 
-    def __init__(self, api_key: str, secret_key: str):
-        """Initialize the Alpaca client.
+    def __init__(self, api_key: str):
+        """Initialize the Polygon client.
 
         Args:
-            api_key: Alpaca API key
-            secret_key: Alpaca secret key
+            api_key: Polygon.io API key
         """
-        self._client = StockHistoricalDataClient(api_key, secret_key)
+        self._client = RESTClient(api_key)
         self._cache: dict[str, tuple[datetime, pd.DataFrame]] = {}
         self._cache_ttl = timedelta(seconds=30)  # Cache bars for 30 seconds
 
@@ -39,10 +37,10 @@ class AlpacaClient:
         Args:
             ticker: Stock symbol (e.g., 'AAPL')
             timeframe: Bar timeframe ('1Min', '5Min', '15Min', '1Hour', '1Day')
-            limit: Number of bars to fetch (max ~10000)
+            limit: Number of bars to fetch
 
         Returns:
-            DataFrame with columns: Open, High, Low, Close, Volume, VWAP, Trades
+            DataFrame with columns: Open, High, Low, Close, Volume, VWAP
         """
         ticker = ticker.upper().strip()
         cache_key = f"{ticker}_{timeframe}_{limit}"
@@ -54,14 +52,13 @@ class AlpacaClient:
                 logger.debug(f"Using cached bars for {ticker}")
                 return cached_df.copy()
 
-        # Map timeframe string to Alpaca TimeFrame
-        tf = self._parse_timeframe(timeframe)
+        # Parse timeframe
+        multiplier, timespan = self._parse_timeframe(timeframe)
 
-        # Calculate start time based on limit and timeframe
-        # For 5Min bars, 250 bars = ~21 hours of market time
+        # Calculate date range
         end = datetime.utcnow()
         if timeframe == "5Min":
-            start = end - timedelta(days=5)  # Fetch extra to account for market hours
+            start = end - timedelta(days=5)
         elif timeframe == "1Min":
             start = end - timedelta(days=2)
         elif timeframe == "15Min":
@@ -71,52 +68,43 @@ class AlpacaClient:
         else:
             start = end - timedelta(days=365)
 
-        request = StockBarsRequest(
-            symbol_or_symbols=ticker,
-            timeframe=tf,
-            start=start,
-            end=end,
-            limit=limit,
-        )
-
         try:
-            bars = self._client.get_stock_bars(request)
-            df = bars.df
+            # Fetch aggregates from Polygon
+            aggs = list(self._client.list_aggs(
+                ticker=ticker,
+                multiplier=multiplier,
+                timespan=timespan,
+                from_=start.strftime("%Y-%m-%d"),
+                to=end.strftime("%Y-%m-%d"),
+                limit=limit,
+                sort="asc",
+            ))
 
-            if df.empty:
+            if not aggs:
                 logger.warning(f"No bars returned for {ticker}")
                 return pd.DataFrame()
 
-            # Reset index to get timestamp as column
-            df = df.reset_index()
+            # Convert to DataFrame
+            data = []
+            for agg in aggs:
+                data.append({
+                    "Date": datetime.fromtimestamp(agg.timestamp / 1000),
+                    "Open": agg.open,
+                    "High": agg.high,
+                    "Low": agg.low,
+                    "Close": agg.close,
+                    "Volume": agg.volume,
+                    "VWAP": agg.vwap if hasattr(agg, 'vwap') and agg.vwap else agg.close,
+                    "Trades": agg.transactions if hasattr(agg, 'transactions') else 0,
+                })
 
-            # Handle multi-index if multiple symbols
-            if "symbol" in df.columns:
-                df = df[df["symbol"] == ticker].drop(columns=["symbol"])
-
-            # Rename columns to standard format
-            df = df.rename(
-                columns={
-                    "timestamp": "Date",
-                    "open": "Open",
-                    "high": "High",
-                    "low": "Low",
-                    "close": "Close",
-                    "volume": "Volume",
-                    "vwap": "VWAP",
-                    "trade_count": "Trades",
-                }
-            )
-
-            # Ensure timezone-naive datetime
-            if "Date" in df.columns:
-                df["Date"] = pd.to_datetime(df["Date"]).dt.tz_localize(None)
-                df = df.set_index("Date").sort_index()
+            df = pd.DataFrame(data)
+            df = df.set_index("Date").sort_index()
 
             # Add AdjClose (same as Close for recent data)
             df["AdjClose"] = df["Close"]
 
-            # Add return columns
+            # Add return column
             df["Return"] = df["Close"].pct_change()
 
             # Cache the result
@@ -172,44 +160,37 @@ class AlpacaClient:
             DataFrame with OHLCV data
         """
         ticker = ticker.upper().strip()
-        tf = self._parse_timeframe(timeframe)
-
-        request = StockBarsRequest(
-            symbol_or_symbols=ticker,
-            timeframe=tf,
-            start=start,
-            end=end,
-        )
+        multiplier, timespan = self._parse_timeframe(timeframe)
 
         try:
-            bars = self._client.get_stock_bars(request)
-            df = bars.df
+            aggs = list(self._client.list_aggs(
+                ticker=ticker,
+                multiplier=multiplier,
+                timespan=timespan,
+                from_=start.strftime("%Y-%m-%d"),
+                to=end.strftime("%Y-%m-%d"),
+                limit=50000,  # Max for historical
+                sort="asc",
+            ))
 
-            if df.empty:
+            if not aggs:
                 logger.warning(f"No historical bars for {ticker} from {start} to {end}")
                 return pd.DataFrame()
 
-            df = df.reset_index()
-            if "symbol" in df.columns:
-                df = df[df["symbol"] == ticker].drop(columns=["symbol"])
+            data = []
+            for agg in aggs:
+                data.append({
+                    "Date": datetime.fromtimestamp(agg.timestamp / 1000),
+                    "Open": agg.open,
+                    "High": agg.high,
+                    "Low": agg.low,
+                    "Close": agg.close,
+                    "Volume": agg.volume,
+                    "VWAP": agg.vwap if hasattr(agg, 'vwap') and agg.vwap else agg.close,
+                })
 
-            df = df.rename(
-                columns={
-                    "timestamp": "Date",
-                    "open": "Open",
-                    "high": "High",
-                    "low": "Low",
-                    "close": "Close",
-                    "volume": "Volume",
-                    "vwap": "VWAP",
-                    "trade_count": "Trades",
-                }
-            )
-
-            if "Date" in df.columns:
-                df["Date"] = pd.to_datetime(df["Date"]).dt.tz_localize(None)
-                df = df.set_index("Date").sort_index()
-
+            df = pd.DataFrame(data)
+            df = df.set_index("Date").sort_index()
             df["AdjClose"] = df["Close"]
             df["Return"] = df["Close"].pct_change()
 
@@ -226,7 +207,7 @@ class AlpacaClient:
         timeframe: str = "5Min",
         limit: int = 250,
     ) -> dict[str, pd.DataFrame]:
-        """Fetch bars for multiple tickers efficiently.
+        """Fetch bars for multiple tickers.
 
         Args:
             tickers: List of stock symbols
@@ -241,47 +222,44 @@ class AlpacaClient:
             result[ticker.upper()] = self.get_bars(ticker, timeframe, limit)
         return result
 
-    def _parse_timeframe(self, timeframe: str) -> TimeFrame:
-        """Convert timeframe string to Alpaca TimeFrame.
+    def _parse_timeframe(self, timeframe: str) -> tuple[int, str]:
+        """Convert timeframe string to Polygon multiplier and timespan.
 
         Args:
             timeframe: String like '5Min', '1Hour', '1Day'
 
         Returns:
-            Alpaca TimeFrame object
+            Tuple of (multiplier, timespan)
         """
         tf_map = {
-            "1Min": TimeFrame(1, TimeFrameUnit.Minute),
-            "5Min": TimeFrame(5, TimeFrameUnit.Minute),
-            "15Min": TimeFrame(15, TimeFrameUnit.Minute),
-            "30Min": TimeFrame(30, TimeFrameUnit.Minute),
-            "1Hour": TimeFrame(1, TimeFrameUnit.Hour),
-            "1Day": TimeFrame(1, TimeFrameUnit.Day),
+            "1Min": (1, "minute"),
+            "5Min": (5, "minute"),
+            "15Min": (15, "minute"),
+            "30Min": (30, "minute"),
+            "1Hour": (1, "hour"),
+            "1Day": (1, "day"),
         }
-        return tf_map.get(timeframe, TimeFrame(5, TimeFrameUnit.Minute))
+        return tf_map.get(timeframe, (5, "minute"))
 
     def clear_cache(self):
         """Clear the data cache."""
         self._cache.clear()
-        logger.debug("Cleared Alpaca data cache")
+        logger.debug("Cleared Polygon data cache")
 
 
 # Singleton instance (initialized lazily)
-_client_instance: Optional[AlpacaClient] = None
+_client_instance: Optional[PolygonClient] = None
 
 
-def get_alpaca_client() -> AlpacaClient:
-    """Get or create the Alpaca client singleton.
+def get_polygon_client() -> PolygonClient:
+    """Get or create the Polygon client singleton.
 
     Returns:
-        AlpacaClient instance
+        PolygonClient instance
     """
     global _client_instance
     if _client_instance is None:
         from app.config import settings
 
-        _client_instance = AlpacaClient(
-            api_key=settings.alpaca_api_key,
-            secret_key=settings.alpaca_secret_key,
-        )
+        _client_instance = PolygonClient(api_key=settings.polygon_api_key)
     return _client_instance

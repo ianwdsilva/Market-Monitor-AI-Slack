@@ -19,13 +19,8 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # Alpaca API
-    alpaca_api_key: str = Field(..., description="Alpaca API key")
-    alpaca_secret_key: str = Field(..., description="Alpaca secret key")
-    alpaca_base_url: str = Field(
-        default="https://paper-api.alpaca.markets",
-        description="Alpaca API base URL (paper or live)",
-    )
+    # Polygon.io API
+    polygon_api_key: str = Field(..., description="Polygon.io API key")
 
     # Slack
     slack_webhook_url: str = Field(..., description="Slack webhook URL for alerts")
@@ -87,10 +82,6 @@ class Settings(BaseSettings):
         """Return watchlist as a list of tickers."""
         return [t.strip().upper() for t in self.watchlist.split(",") if t.strip()]
 
-    @property
-    def is_paper_trading(self) -> bool:
-        """Check if using paper trading API."""
-        return "paper" in self.alpaca_base_url.lower()
 
 
 @lru_cache
