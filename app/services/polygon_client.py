@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -25,6 +26,8 @@ class PolygonClient:
         self._client = RESTClient(api_key)
         self._cache: dict[str, tuple[datetime, pd.DataFrame]] = {}
         self._cache_ttl = timedelta(seconds=30)  # Cache bars for 30 seconds
+        self._last_request_time: float = 0
+        self._min_request_interval: float = 12.5  # 5 calls/min = 1 call per 12 seconds
 
     def get_bars(
         self,
@@ -51,6 +54,9 @@ class PolygonClient:
             if datetime.utcnow() - cached_time < self._cache_ttl:
                 logger.debug(f"Using cached bars for {ticker}")
                 return cached_df.copy()
+
+        # Rate limiting - wait if needed
+        self._wait_for_rate_limit()
 
         # Parse timeframe
         multiplier, timespan = self._parse_timeframe(timeframe)
@@ -162,6 +168,9 @@ class PolygonClient:
         ticker = ticker.upper().strip()
         multiplier, timespan = self._parse_timeframe(timeframe)
 
+        # Rate limiting
+        self._wait_for_rate_limit()
+
         try:
             aggs = list(self._client.list_aggs(
                 ticker=ticker,
@@ -221,6 +230,15 @@ class PolygonClient:
         for ticker in tickers:
             result[ticker.upper()] = self.get_bars(ticker, timeframe, limit)
         return result
+
+    def _wait_for_rate_limit(self):
+        """Wait to respect rate limits."""
+        elapsed = time.time() - self._last_request_time
+        if elapsed < self._min_request_interval:
+            sleep_time = self._min_request_interval - elapsed
+            logger.debug(f"Rate limiting: sleeping {sleep_time:.1f}s")
+            time.sleep(sleep_time)
+        self._last_request_time = time.time()
 
     def _parse_timeframe(self, timeframe: str) -> tuple[int, str]:
         """Convert timeframe string to Polygon multiplier and timespan.
