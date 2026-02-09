@@ -15,7 +15,7 @@ from typing import Dict, Optional
 
 from app.config import settings
 from app.services.alerts import AlertManager, get_alert_manager
-from app.services.polygon_client import PolygonClient, get_polygon_client
+from app.services.yfinance_client import YFinanceClient, get_yfinance_client
 from app.services.backtest import load_latest_backtest, run_backtest, save_backtest_results
 from app.services.indicators import build_indicator_frame
 from app.services.market_hours import (
@@ -49,7 +49,7 @@ class MarketMonitor:
     """Main market monitoring class."""
 
     def __init__(self):
-        self.client: Optional[PolygonClient] = None
+        self.client: Optional[YFinanceClient] = None
         self.alert_manager: Optional[AlertManager] = None
         self.best_strategies: Dict[str, str] = {}  # ticker -> strategy name
         self.strategies: Dict[str, Strategy] = {}  # strategy name -> instance
@@ -60,9 +60,9 @@ class MarketMonitor:
         logger.info("Market Monitor starting up...")
         logger.info("=" * 60)
 
-        # Initialize Polygon client
-        logger.info("Initializing Polygon.io client...")
-        self.client = get_polygon_client()
+        # Initialize yfinance client
+        logger.info("Initializing Yahoo Finance client...")
+        self.client = get_yfinance_client()
 
         # Initialize alert manager
         logger.info("Initializing Slack alert manager...")

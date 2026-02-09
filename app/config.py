@@ -19,9 +19,6 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # Polygon.io API
-    polygon_api_key: str = Field(..., description="Polygon.io API key")
-
     # Slack
     slack_webhook_url: str = Field(..., description="Slack webhook URL for alerts")
 
