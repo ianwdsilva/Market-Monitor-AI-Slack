@@ -86,8 +86,8 @@ class TradeOutcome(BaseModel):
         if self.return_15m is None:
             return None
         if self.direction == SignalDirection.BUY:
-            return self.return_15m > 0
-        return self.return_15m < 0
+            return bool(self.return_15m > 0)
+        return bool(self.return_15m < 0)
 
     @property
     def is_winner_1h(self) -> Optional[bool]:
@@ -95,8 +95,8 @@ class TradeOutcome(BaseModel):
         if self.return_1h is None:
             return None
         if self.direction == SignalDirection.BUY:
-            return self.return_1h > 0
-        return self.return_1h < 0
+            return bool(self.return_1h > 0)
+        return bool(self.return_1h < 0)
 
 
 class StrategyPerformance(BaseModel):

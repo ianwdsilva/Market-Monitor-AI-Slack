@@ -122,9 +122,9 @@ def _calculate_performance(
             total_signals=0,
         )
 
-    # Win rates
-    winners_15m = [o for o in outcomes if o.is_winner_15m is True]
-    winners_1h = [o for o in outcomes if o.is_winner_1h is True]
+    # Win rates (use == True instead of 'is True' to handle numpy bools)
+    winners_15m = [o for o in outcomes if o.is_winner_15m == True]
+    winners_1h = [o for o in outcomes if o.is_winner_1h == True]
 
     valid_15m = [o for o in outcomes if o.return_15m is not None]
     valid_1h = [o for o in outcomes if o.return_1h is not None]
@@ -162,7 +162,7 @@ def _calculate_performance(
     max_consec_losses = 0
     current_streak = 0
     for o in outcomes:
-        if o.is_winner_1h is False:
+        if o.is_winner_1h == False:
             current_streak += 1
             max_consec_losses = max(max_consec_losses, current_streak)
         else:
@@ -187,8 +187,10 @@ def _calculate_performance(
         total_signals=len(outcomes),
         win_rate_15m=win_rate_15m,
         win_rate_1h=win_rate_1h,
-        win_rate_4h=len([o for o in outcomes if o.return_4h and o.return_4h > 0])
-        / max(1, len(valid_4h)),
+        win_rate_4h=len([o for o in outcomes if o.return_4h is not None and (
+            (o.direction == SignalDirection.BUY and o.return_4h > 0) or
+            (o.direction == SignalDirection.SELL and o.return_4h < 0)
+        )]) / max(1, len(valid_4h)),
         avg_return_15m=avg_return_15m,
         avg_return_1h=avg_return_1h,
         avg_return_4h=avg_return_4h,
