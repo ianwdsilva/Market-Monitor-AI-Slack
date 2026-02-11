@@ -5,6 +5,10 @@ yfinance>=0.2.40
 pandas>=2.0.0
 numpy>=1.24.0
 
+# Machine learning
+scikit-learn>=1.3.0
+joblib>=1.3.0
+
 # Slack notifications
 slack-sdk>=3.21.0
 
