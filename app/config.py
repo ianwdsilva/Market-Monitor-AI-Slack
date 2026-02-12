@@ -61,6 +61,11 @@ class Settings(BaseSettings):
         le=365,
         description="Days of historical data for backtesting",
     )
+    paper_trading_starting_balance: float = Field(
+        default=100_000.0,
+        ge=100.0,
+        description="Initial capital for paper trading",
+    )
 
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")

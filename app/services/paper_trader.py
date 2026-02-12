@@ -440,7 +440,7 @@ def get_paper_trader() -> PaperTrader:
         from app.config import settings
 
         _paper_trader = PaperTrader(
-            initial_capital=100_000.0,
+            initial_capital=settings.paper_trading_starting_balance,
             position_size_pct=0.10,
             max_positions=10,
             auto_close_hours=4.0,
