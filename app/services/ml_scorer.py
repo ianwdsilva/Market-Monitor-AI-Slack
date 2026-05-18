@@ -442,3 +442,14 @@ def get_ml_scorer() -> MLScorer:
         _ml_scorer = MLScorer()
         _ml_scorer.load_model()  # Try to load existing model
     return _ml_scorer
+    
+def partial_fit(self, features: dict, label: float) -> None:
+    """Incremental update with one live signal sample."""
+    # If you're using sklearn, SGDClassifier/SGDRegressor support this natively.
+    # For a RandomForest you'd need to retrain periodically instead.
+    pass  # implement based on your model type
+
+def save(self, path: str = "ml_scorer.pkl") -> None:
+    import pickle
+    with open(path, "wb") as f:
+        pickle.dump(self, f)

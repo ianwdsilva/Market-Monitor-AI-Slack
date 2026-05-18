@@ -1,4 +1,4 @@
-"""Market Monitor - Main entry point and monitoring loop.
+"""Market Monitor - Main entry point and monitoring loop. Command to run is 'python3 -m app.main'
 
 Runs during NYSE market hours, analyzing tickers and sending
 Slack alerts when trading signals are detected. Includes ML-enhanced
