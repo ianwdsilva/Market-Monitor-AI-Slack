@@ -27,6 +27,7 @@ class PaperTrader:
         self,
         initial_capital: float = 100_000.0,
         position_size_pct: float = 0.10,  # 10% of portfolio per trade
+        max_trade_value: float = 5_000.0,  # hard cap per trade
         max_positions: int = 10,
         auto_close_hours: float = 4.0,
         data_dir: str = "data",
@@ -37,6 +38,7 @@ class PaperTrader:
         Args:
             initial_capital: Starting cash amount
             position_size_pct: Percentage of portfolio per trade
+            max_trade_value: Maximum dollar value for any single trade
             max_positions: Maximum concurrent positions
             auto_close_hours: Auto-close positions after this many hours
             data_dir: Directory to persist portfolio state
@@ -44,6 +46,7 @@ class PaperTrader:
         """
         self.initial_capital = initial_capital
         self.position_size_pct = position_size_pct
+        self.max_trade_value = max_trade_value
         self.max_positions = max_positions
         self.auto_close_hours = auto_close_hours
         self.data_dir = data_dir
@@ -99,6 +102,7 @@ class PaperTrader:
         self,
         signal: Signal,
         current_prices: Optional[Dict[str, float]] = None,
+        shares: int = 0
     ) -> Optional[str]:
         """Process a trading signal and execute paper trade if appropriate.
 
@@ -153,7 +157,7 @@ class PaperTrader:
 
         # Calculate position size
         equity = self.portfolio.total_equity(current_prices)
-        position_value = equity * self.position_size_pct
+        position_value = min(equity * self.position_size_pct, self.max_trade_value)
 
         # Check if we have enough cash
         if position_value > self.portfolio.cash:
@@ -442,6 +446,7 @@ def get_paper_trader() -> PaperTrader:
         _paper_trader = PaperTrader(
             initial_capital=settings.paper_trading_starting_balance,
             position_size_pct=0.10,
+            max_trade_value=settings.paper_trading_max_trade_value,
             max_positions=10,
             auto_close_hours=4.0,
             webhook_url=settings.slack_webhook_url,

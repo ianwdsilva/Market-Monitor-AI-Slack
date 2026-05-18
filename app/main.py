@@ -203,9 +203,14 @@ class MarketMonitor:
             # Send alert (respects cooldown)
             alert_sent = self.alert_manager.send_alert(signal)
 
-            # Execute paper trade if alert was sent (not in cooldown)
-            if alert_sent and self.paper_trader:
-                self.paper_trader.process_signal(signal, self.current_prices)
+            # Execute paper trade independently from alert/cooldown status
+            if self.paper_trader:
+                action = self.paper_trader.process_signal(signal, self.current_prices)
+                if action and not alert_sent:
+                    logger.info(
+                        f"   ↳ {ticker}: Executed paper trade without Slack alert "
+                        "(alert suppressed or failed)"
+                    )
 
         except Exception as e:
             logger.error(f"Error analyzing {ticker}: {e}", exc_info=True)
