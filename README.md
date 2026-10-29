@@ -1,193 +1,90 @@
 # Market Monitor
 
-Real-time NYSE stock monitoring with technical analysis and Slack alerts.
+A real-time trading signal system for U.S. equities. It scans a watchlist during NYSE market hours, generates buy and sell signals from five rule-based strategies, scores each signal with a machine learning model that keeps learning from new outcomes, sizes positions with the Kelly Criterion, and paper-trades the results while sending alerts to Slack.
 
-## Features
+## Results
 
-- **Live Monitoring**: Runs during NYSE market hours (9:30 AM - 4:00 PM ET)
-- **Multi-Indicator Analysis**: 20+ technical indicators including RSI, MACD, Bollinger Bands, ADX, VWAP, and more
-- **5 Trading Strategies**:
-  - Momentum Reversal (RSI/Stochastic oversold/overbought)
-  - Trend Following (VWAP/ADX/MACD alignment)
-  - Breakout (Bollinger Band break with volume)
-  - Mean Reversion (extreme readings with trend filter)
-  - Ensemble (multi-strategy agreement)
-- **Pattern Detection**: Golden/Death cross, MACD crossover, RSI divergence, Bollinger squeeze, support/resistance
-- **Backtesting**: Auto-selects best strategy per ticker based on historical performance
-- **Slack Alerts**: Rich notifications with 1-hour per-ticker cooldown
-- **Conservative Signals**: Requires 3+ indicator confirmations and 75%+ confidence
+Paper trading from May 18 to June 29, 2026, across a 10-stock watchlist (AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, AMD, NFLX, DIS):
 
-## Quick Start
+| Metric | Value |
+|---|---|
+| Closed trades | 170 |
+| Profit factor | 1.12 |
+| Win rate | 47.6% |
+| Net P&L on closed trades | +$524 |
 
-### 1. Clone and Setup
+A profit factor above 1 with a win rate below 50% means winning trades were larger on average than losing trades. Results are from simulated trades on live market data, with no commissions or slippage, and are not a guarantee of future performance.
+
+## How it works
+
+1. **Data.** Pulls intraday price data for each ticker with `yfinance`.
+2. **Indicators.** Computes 20+ technical indicators: RSI, MACD, Bollinger Bands, ADX, VWAP, Stochastic, MFI, ATR, OBV and more.
+3. **Strategies.** Five strategies look for setups, and each signal needs multiple indicator confirmations:
+   - **Momentum reversal:** oversold or overbought readings with improving momentum
+   - **Trend following:** price, VWAP, ADX and MACD aligned in one direction
+   - **Breakout:** Bollinger Band breaks confirmed by volume
+   - **Mean reversion:** extreme readings filtered by the long-term trend
+   - **Ensemble:** fires only when two or more strategies agree
+4. **Backtest-driven strategy selection.** On startup, the system backtests every strategy on every ticker over the past 30 days and picks the best-performing strategy for each ticker.
+5. **ML confidence scoring.** A scikit-learn gradient boosting classifier, trained on backtest outcomes, predicts whether a signal will be profitable one hour later. That prediction is blended with the strategy's rule-based confidence, its historical win rate, pattern strength and how extreme the indicator readings are.
+6. **Continuous learning.** As trades resolve, the model is updated with the new outcomes, so its scoring adapts to current market conditions.
+7. **Position sizing.** Signals above the confidence threshold are sized with half-Kelly, capped at 20% of the portfolio per trade and a fixed dollar maximum.
+8. **Execution and alerts.** The paper trader opens and closes simulated positions, tracks P&L, and sends trade alerts and a daily summary to Slack. A live `dashboard.json` reports prices, signals and model status.
+
+Tickers are analyzed concurrently with `asyncio`, so a full watchlist cycle runs in parallel rather than one ticker at a time.
+
+## Tech stack
+
+Python, asyncio, pandas, NumPy, scikit-learn, yfinance, Pydantic, Slack SDK, pandas-market-calendars
+
+## Project structure
+
+```
+app/
+├── main.py              # Monitoring loop, Kelly sizing, dashboard
+├── config.py            # Settings loaded from .env
+├── models/              # Pydantic schemas and portfolio models
+└── services/
+    ├── yfinance_client.py   # Market data
+    ├── indicators.py        # Technical indicators
+    ├── patterns.py          # Chart pattern detection
+    ├── strategies.py        # The five trading strategies
+    ├── backtest.py          # Strategy evaluation
+    ├── ml_scorer.py         # ML confidence model
+    ├── paper_trader.py      # Simulated portfolio
+    ├── alerts.py            # Slack notifications
+    └── market_hours.py      # NYSE trading calendar
+data/ml_models/          # Saved model and scaler
+```
+
+## Running it
 
 ```bash
-cd /Users/iandsilva/Warpfp/market-monitor
-
-# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
+
+cp .env.example .env   # then add your Slack webhook URL
+python3 -m app.main
 ```
 
-### 2. Configure Environment
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your credentials:
-
-```env
-# Alpaca API (get keys at https://app.alpaca.markets/)
-ALPACA_API_KEY=your_api_key
-ALPACA_SECRET_KEY=your_secret_key
-ALPACA_BASE_URL=https://paper-api.alpaca.markets
-
-# Slack Webhook (create at https://api.slack.com/messaging/webhooks)
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxx/xxx/xxx
-
-# Tickers to monitor
-WATCHLIST=AAPL,MSFT,GOOGL,AMZN,NVDA,META,TSLA,AMD,NFLX,DIS
-```
-
-### 3. Run
-
-```bash
-python -m app.main
-```
-
-The monitor will:
-1. Run initial backtest to select best strategies
-2. Wait for market open (if closed)
-3. Poll every 60 seconds during market hours
-4. Send Slack alerts when signals are detected
+The monitor runs the startup backtest, waits for the market to open, then analyzes the watchlist every 60 seconds.
 
 ## Configuration
 
+Set these in `.env`:
+
 | Variable | Default | Description |
-|----------|---------|-------------|
-| `WATCHLIST` | 10 major stocks | Comma-separated tickers |
+|---|---|---|
+| `SLACK_WEBHOOK_URL` | (required) | Slack incoming webhook for alerts |
+| `WATCHLIST` | 10 large-cap stocks | Comma-separated tickers |
 | `POLL_INTERVAL_SECONDS` | 60 | Seconds between analysis cycles |
-| `ALERT_COOLDOWN_MINUTES` | 60 | Min wait between alerts per ticker |
-| `SIGNAL_CONFIDENCE_THRESHOLD` | 0.75 | Minimum confidence to alert |
-| `MIN_CONFIRMATIONS` | 3 | Required indicator confirmations |
-| `BACKTEST_DAYS` | 30 | Historical days for backtesting |
-
-## Project Structure
-
-```
-market-monitor/
-├── app/
-│   ├── main.py              # Entry point, monitoring loop
-│   ├── config.py            # Settings management
-│   ├── services/
-│   │   ├── alpaca_client.py # Alpaca data fetching
-│   │   ├── indicators.py    # 20+ technical indicators
-│   │   ├── patterns.py      # Chart pattern detection
-│   │   ├── strategies.py    # 5 trading strategies
-│   │   ├── backtest.py      # Strategy evaluation
-│   │   ├── alerts.py        # Slack notifications
-│   │   └── market_hours.py  # NYSE schedule
-│   └── models/
-│       └── schemas.py       # Pydantic data models
-├── data/
-│   ├── cache/               # Data cache
-│   └── backtest_results/    # Performance logs
-├── requirements.txt
-├── .env.example
-└── README.md
-```
-
-## Strategies
-
-### A) Momentum Reversal
-Identifies oversold/overbought conditions with momentum confirmation.
-
-**BUY**: RSI < 30 + Stochastic < 20 + Price near BB lower + MACD improving
-**SELL**: RSI > 70 + Stochastic > 80 + Price near BB upper + MACD weakening
-
-### B) Trend Following
-Follows established trends with multiple confirmations.
-
-**BUY**: Price > VWAP + ADX > 25 + MACD bullish cross + Price > EMA20
-**SELL**: Price < VWAP + ADX > 25 + MACD bearish cross + Price < EMA20
-
-### C) Breakout
-Identifies breakouts with volume confirmation.
-
-**BUY**: Price > BB upper + Volume > 2x average + ADX rising + RSI < 70
-**SELL**: Price < BB lower + Volume > 2x average + ADX rising + RSI > 30
-
-### D) Mean Reversion
-Identifies extreme conditions likely to revert.
-
-**BUY**: Price < BB lower + MFI < 20 + Williams %R < -80 + Price > SMA200
-**SELL**: Price > BB upper + MFI > 80 + Williams %R > -20 + Price < SMA200
-
-### E) Ensemble
-Alerts only when 2+ strategies agree on direction. Highest confidence.
-
-## Indicators
-
-**Trend**: SMA (20/50/200), EMA (12/20/26/50)
-**Momentum**: RSI, MACD, Stochastic, MFI, ROC, CCI, Williams %R
-**Volatility**: Bollinger Bands, ATR, Parabolic SAR
-**Volume**: OBV, VWAP, Volume Ratio
-**Trend Strength**: ADX, +DI, -DI
-
-## Slack Alert Format
-
-```
-🟢 BUY Signal: AAPL
-━━━━━━━━━━━━━━━━━━
-Strategy: momentum_reversal
-Confidence: 85%
-Price: $178.25
-Confirmations: 4
-
-Reason: RSI(28.5) oversold | Stochastic(18.2) oversold | Price near BB lower | MACD momentum improving
-
-Indicators:
-• rsi: 28.50
-• stoch_k: 18.20
-• macd_hist: 0.15
-
-Patterns:
-• MACD crossed above signal line (bullish momentum)
-
-⏰ 2024-01-15 10:30:00 UTC
-```
-
-## Development
-
-### Running Tests
-
-```bash
-pytest tests/
-```
-
-### Adding a New Strategy
-
-1. Create a new class in `app/services/strategies.py` extending `Strategy`
-2. Implement `check_signal()` method
-3. Add to `STRATEGY_REGISTRY`
-4. The backtest will automatically evaluate it
-
-### Adding a New Indicator
-
-1. Add the function to `app/services/indicators.py`
-2. Add it to `build_indicator_frame()` to compute it automatically
-3. Use it in strategies via `df["YOUR_INDICATOR"]`
+| `SIGNAL_CONFIDENCE_THRESHOLD` | 0.75 | Minimum confidence to act on a signal |
+| `MIN_CONFIRMATIONS` | 3 | Indicator confirmations required |
+| `BACKTEST_DAYS` | 30 | Lookback for strategy selection |
+| `PAPER_TRADING_STARTING_BALANCE` | 100000 | Starting paper capital |
+| `PAPER_TRADING_MAX_TRADE_VALUE` | 5000 | Dollar cap per trade |
 
 ## Disclaimer
 
-**This software is for educational purposes only. It is not financial advice.**
-
-Trading stocks involves risk. Past performance does not guarantee future results. Always do your own research and consider consulting a financial advisor before making investment decisions.
-
-## License
-
-MIT
+This project is for educational and research purposes only and is not financial advice.
